@@ -197,62 +197,11 @@ class VisibilityTester:
             kf.id, kf.img, visibile_vertices, ans['t_hit'], rays_w,
             self.vertex_normals,
             projected)
-        return
-        if False:
-            ans = self.scene.cast_rays(rays_w_origin)
-            pos = ans['t_hit'].numpy()[..., None] * rays_w + origin
-            visibile = (np.abs(pos - self.vertices).sum(axis=-1) < self.eps)
-            print(V, visibile.sum() / V)
-            vis = kf.img.copy()
-            for p in projected[visibile]:
-                cv2.circle(vis, (int(np.round(p[0])), int(
-                    np.round(p[1]))), 2, (255, 0, 0), -1)
-            cv2.imwrite('hoge.png', vis)
-            return
-        if False:
-            print(rays_w_origin)
-            ans = self.scene.cast_rays(rays_w_origin)
-            visibile = ans['t_hit'].numpy() < 10000
-            print(V, visibile.sum() / V)
-            vis = kf.img.copy()
-            for p in projected[visibile]:
-                cv2.circle(vis, (int(p[0]), int(p[1])), 2, (255, 0, 0), -1)
-            cv2.imwrite('hoge.png', vis)
-            return
-        if False:
-            intersection_counts = self.scene.count_intersections(
-                rays_w_origin).numpy()
-            visibile = (intersection_counts != 0)
-            print(V, visibile.sum() / V)
-            vis = kf.img.copy()
-            for p in projected[visibile]:
-                cv2.circle(vis, (int(p[0]), int(p[1])), 2, (255, 0, 0), -1)
-            cv2.imwrite('hoge.png', vis)
-            return
 
-        hit = self.scene.test_occlusions(rays_w_origin)
-        hit = hit.numpy()
-        print(V, np.array(hit).sum() / V)
-        visibile = hit  # np.bitwise_not(hit)
-        vis = kf.img.copy()
-        for p in projected[visibile]:
-            cv2.circle(vis, (int(p[0]), int(p[1])), 2, (255, 0, 0), -1)
-        cv2.imwrite('hoge.png', vis)
-
-        # If occlusded, skip
-
-        # Not occluded, update vertex info
-
-        # self.ans = self.scene.cast_rays(rays)
-        # self.scene.test_occlusions(rays)
-        # self.updateVertexInfo()
-        # return self.ans
-
-    def computeVertexColor(self, calc_func=None):
-        def mode(xs):
+    def computeVertexColor(self, ignore_color=[0, 0, 0],
+                           aggr_type='min_angle', calc_func=None):
+        def mode(xs, viewing_angle):
             uniqs, counts = np.unique(xs, return_counts=True, axis=0)
-            #print(uniqs, counts)
-            #print(counts == np.amax(counts))
             return uniqs[np.where(counts == np.amax(counts))[0][0]]
 
         def average(xs, viewing_angles=None):
@@ -266,20 +215,34 @@ class VisibilityTester:
         def minAngle(xs, viewing_angle):
             index = np.argmin(viewing_angle)
             return xs[index]
+
+        if aggr_type == 'mode':
+            aggr_func = mode
+        elif aggr_type == 'average':
+            aggr_func = average
+        elif aggr_type == 'min_angle':
+            aggr_func = minAngle
+
         vertex_colors = []
         for vi in self.vertex_info:
             if calc_func is not None:
                 vc = calc_func(vi)
             else:
-                colors = np.array([x.color for x in vi.visible_keyframes])
-                viewing_angles = np.array(
-                    [x.viewing_angle for x in vi.visible_keyframes])
-                if len(colors) < 1:
+                if len(vi.visible_keyframes) < 1:
                     vc = [0, 0, 0]
                 else:
-                    vc = minAngle(colors, viewing_angles)
+                    colors = np.array([x.color for x in vi.visible_keyframes])
+                    viewing_angles = np.array(
+                        [x.viewing_angle for x in vi.visible_keyframes])
+                    if ignore_color is not None:
+                        ignore_indices = (
+                            np.sum((colors == ignore_color), axis=-1) == 3)
+                        ok_indices = np.bitwise_not(ignore_indices)
+                        colors = colors[ok_indices]
+                        viewing_angles = viewing_angles[ok_indices]
+                    if len(colors) < 1:
+                        vc = [0, 0, 0]
+                    else:
+                        vc = aggr_func(colors, viewing_angles)
             vertex_colors.append(vc)
-            # if (len(vc) != 3):
-            #     print(vc, colors, vc.shape)
-            #     hoge
         return vertex_colors
